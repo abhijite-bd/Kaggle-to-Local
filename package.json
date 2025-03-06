@@ -1,6 +1,11 @@
 {
   "name": "kaggle-to-notebook",
   "displayName": "Kaggle to Notebook",
+  "publisher": "Abhijite",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/abhijite-bd/Kaggle-to-Local"
+  },
   "description": "Extracts Python code from a Kaggle notebook link",
   "version": "0.0.1",
   "engines": {
