@@ -7,75 +7,72 @@ export function activate(context: vscode.ExtensionContext) {
     console.log('Extension "Kaggle to Notebook" is now active!');
 
     let disposable = vscode.commands.registerCommand('kaggle-to-notebook.fetchKaggleNotebook', async () => {
-        const url = await vscode.window.showInputBox({
-            prompt: 'Enter the Kaggle Notebook URL',
-            placeHolder: 'https://www.kaggle.com/code/username/notebook-slug'
-        });
-
-        if (!url) {
-            vscode.window.showErrorMessage('No URL provided. Please enter a valid Kaggle notebook URL.');
-            return;
-        }
-
-        const match = url.match(/https:\/\/www\.kaggle\.com\/code\/([^\/]+)\/([^\/]+)/);
-        if (!match) {
-            vscode.window.showErrorMessage('Invalid Kaggle notebook URL.');
-            return;
-        }
-
-        const username = match[1];
-        const slug = match[2];
-        const outputPath = path.join(__dirname, 'notebooks');
-
-        if (!fs.existsSync(outputPath)) {
-            fs.mkdirSync(outputPath, { recursive: true });
-        }
-
         try {
-            const command = `kaggle kernels pull ${username}/${slug} -p ${outputPath}`;
-            console.log('Running command:', command);
-
-            exec(command, (error, stdout, stderr) => {
-                if (error) {
-                    if (stderr.includes('403')) {
-                        vscode.window.showErrorMessage('This notebook is private. Please log in to Kaggle and ensure your API token is valid.');
-                    } else {
-                        vscode.window.showErrorMessage(`Failed to pull notebook: ${stderr}`);
-                    }
-                    return;
-                }
-
-                console.log('Command output:', stdout);
-
-                const notebookPath = path.join(outputPath, `${slug}.ipynb`);
-                console.log('Notebook path:', notebookPath);
-
-                if (!fs.existsSync(notebookPath)) {
-                    vscode.window.showErrorMessage(`Notebook not found at: ${notebookPath}`);
-                    return;
-                }
-
-                vscode.workspace.openTextDocument(notebookPath).then(doc => {
-                    vscode.window.showTextDocument(doc);
-                    // Set the language mode based on the file extension
-                    const fileExtension = path.extname(notebookPath);
-                    let languageId = 'plaintext'; // Default language
-
-                    if (fileExtension === '.ipynb') {
-                        languageId = 'python'; // Jupyter Notebook
-                    } else if (fileExtension === '.py') {
-                        languageId = 'python'; // Python script
-                    } else if (fileExtension === '.md') {
-                        languageId = 'markdown'; // Markdown file
-                    }
-                    vscode.languages.setTextDocumentLanguage(doc, languageId);
-                    vscode.window.showInformationMessage('Kaggle notebook fetched successfully!');
-                });
-
+            const url = await vscode.window.showInputBox({
+                prompt: 'Enter the Kaggle Notebook URL',
+                placeHolder: 'https://www.kaggle.com/code/username/notebook-slug'
             });
+
+            if (!url) {
+                vscode.window.showErrorMessage('No URL provided. Please enter a valid Kaggle notebook URL.');
+                return;
+            }
+
+            const match = url.match(/https:\/\/www\.kaggle\.com\/code\/([^\/]+)\/([^\/]+)/);
+            if (!match) {
+                vscode.window.showErrorMessage('Invalid Kaggle notebook URL.');
+                return;
+            }
+
+            const username = match[1];
+            const slug = match[2];
+
+            // Ask the user for a save location (default to workspace 'notebooks' folder)
+            const selectedFolder = await vscode.window.showOpenDialog({
+                canSelectFolders: true,
+                canSelectFiles: false,
+                canSelectMany: false,
+                openLabel: "Select folder to save notebook"
+            });
+
+            const outputPath = selectedFolder
+                ? selectedFolder[0].fsPath
+                : path.join(vscode.workspace.rootPath || __dirname, 'notebooks');
+
+            if (!fs.existsSync(outputPath)) {
+                fs.mkdirSync(outputPath, { recursive: true });
+            }
+
+            const command = `kaggle kernels pull ${username}/${slug} -p "${outputPath}" --metadata `;
+
+            await vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: "Fetching Kaggle Notebook...",
+                cancellable: false
+            }, async () => {
+                try {
+                    await execPromise(command);
+                    const notebookPath = path.join(outputPath, `${slug}.ipynb`);
+
+                    if (!fs.existsSync(notebookPath)) {
+                        vscode.window.showErrorMessage(`Notebook not found at: ${notebookPath}`);
+                        return;
+                    }
+
+                    const doc = await vscode.workspace.openTextDocument(notebookPath);
+                    vscode.window.showTextDocument(doc);
+                    vscode.window.showInformationMessage('Kaggle notebook fetched successfully!');
+
+                    // Open the folder in VS Code
+                    vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(outputPath));
+
+                } catch (error) {
+                    handleError(error, 'Failed to fetch Kaggle notebook.');
+                }
+            });
+
         } catch (error) {
-            console.error('Error:', error);
-            vscode.window.showErrorMessage(`Failed to fetch Kaggle notebook: ${error}`);
+            handleError(error, 'Unexpected error while fetching the Kaggle notebook.');
         }
     });
 
@@ -83,3 +80,31 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 export function deactivate() { }
+
+// Helper function to execute commands asynchronously
+function execPromise(command: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+        exec(command, (error, stdout, stderr) => {
+            if (error) {
+                if (stderr.includes('403')) {
+                    reject(new Error('This notebook is private. Please log in to Kaggle and ensure your API token is valid.'));
+                } else {
+                    reject(new Error(`Failed to pull notebook: ${stderr || error.message}`));
+                }
+                return;
+            }
+            console.log(stdout);
+            resolve();
+        });
+    });
+}
+
+// Generic error handler
+function handleError(error: unknown, defaultMessage: string) {
+    console.error('Error:', error);
+    if (error instanceof Error) {
+        vscode.window.showErrorMessage(error.message || defaultMessage);
+    } else {
+        vscode.window.showErrorMessage(defaultMessage);
+    }
+}

@@ -1,11 +1,13 @@
-.vscode/**
-.vscode-test/**
-src/**
+node_modules/**
+!node_modules/esbuild/**  # Keep esbuild if needed
+.vscode/
+.vscode-test/
+.git/
+tests/
+docs/
+*.map
+*.ts
+out/notebooks/
+*.ipynb
+test/
 .gitignore
-.yarnrc
-vsc-extension-quickstart.md
-**/tsconfig.json
-**/eslint.config.mjs
-**/*.map
-**/*.ts
-**/.vscode-test.*
